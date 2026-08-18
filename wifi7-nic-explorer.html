@@ -1,0 +1,707 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Wi-Fi 7 NIC Explorer — Packet Flow Model</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700&family=JetBrains+Mono:wght@400;500;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --void:#070A11;
+  --panel:#0D131E;
+  --panel-2:#111926;
+  --rule:#1E2A3C;
+  --rule-hot:#2C3E58;
+  --ink:#DBE3EE;
+  --ink-dim:#7A8AA2;
+  --ink-faint:#4A5769;
+
+  --ev-be200:#3FE0C8;
+  --ev-iface:#5B9DF0;
+  --ev-repr:#E8B34A;
+  --ev-prop:#E0559B;
+
+  --display:'Orbitron',system-ui,sans-serif;
+  --mono:'JetBrains Mono',ui-monospace,monospace;
+  --body:'Inter',system-ui,sans-serif;
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{
+  background:var(--void);
+  color:var(--ink);
+  font-family:var(--body);
+  font-size:15px;
+  line-height:1.6;
+  -webkit-font-smoothing:antialiased;
+}
+a{color:var(--ev-be200)}
+
+/* ---------- masthead ---------- */
+.masthead{
+  border-bottom:1px solid var(--rule);
+  padding:22px 28px 18px;
+  display:flex;flex-wrap:wrap;gap:18px;
+  align-items:flex-end;justify-content:space-between;
+}
+.title{
+  font-family:var(--display);
+  font-weight:700;
+  font-size:19px;
+  letter-spacing:.14em;
+  text-transform:uppercase;
+  margin:0;
+}
+.subtitle{
+  font-family:var(--mono);
+  font-size:11.5px;
+  color:var(--ink-dim);
+  letter-spacing:.04em;
+  margin:6px 0 0;
+  max-width:62ch;
+}
+.subtitle b{color:var(--ev-repr);font-weight:500}
+
+/* ---------- evidence control ---------- */
+.evidence-bar{display:flex;flex-direction:column;gap:8px}
+.evidence-label{
+  font-family:var(--mono);font-size:10px;letter-spacing:.18em;
+  text-transform:uppercase;color:var(--ink-faint);
+}
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+.chip{
+  font-family:var(--mono);font-size:10.5px;letter-spacing:.06em;
+  padding:5px 10px;border-radius:2px;cursor:pointer;
+  background:transparent;color:var(--ink-dim);
+  border:1px solid var(--rule-hot);
+  transition:background .15s,color .15s,border-color .15s,opacity .15s;
+}
+.chip[data-on="true"]{color:var(--void);font-weight:700}
+.chip[data-ev="be200"][data-on="true"]{background:var(--ev-be200);border-color:var(--ev-be200)}
+.chip[data-ev="iface"][data-on="true"]{background:var(--ev-iface);border-color:var(--ev-iface)}
+.chip[data-ev="repr"][data-on="true"] {background:var(--ev-repr); border-color:var(--ev-repr)}
+.chip[data-ev="prop"][data-on="true"] {background:var(--ev-prop); border-color:var(--ev-prop)}
+.chip[data-on="false"]{opacity:.5}
+.chip:focus-visible{outline:2px solid var(--ink);outline-offset:2px}
+.chip-strip{
+  font-family:var(--mono);font-size:10.5px;letter-spacing:.06em;
+  padding:5px 10px;border-radius:2px;cursor:pointer;
+  background:transparent;color:var(--ev-prop);
+  border:1px dashed var(--ev-prop);
+}
+
+/* ---------- layout ---------- */
+.stage{
+  display:grid;
+  grid-template-columns:minmax(0,1fr) 400px;
+  gap:0;
+  align-items:start;
+}
+.map-wrap{padding:26px 28px 90px;min-width:0}
+
+/* ---------- transport controls ---------- */
+.transport{
+  display:flex;flex-wrap:wrap;gap:10px;align-items:center;
+  margin-bottom:26px;
+}
+.btn{
+  font-family:var(--mono);font-size:11px;letter-spacing:.1em;text-transform:uppercase;
+  background:var(--panel-2);color:var(--ink);
+  border:1px solid var(--rule-hot);border-radius:2px;
+  padding:9px 16px;cursor:pointer;transition:border-color .15s,color .15s;
+}
+.btn:hover{border-color:var(--ev-be200);color:var(--ev-be200)}
+.btn:focus-visible{outline:2px solid var(--ink);outline-offset:2px}
+.btn.primary{border-color:var(--ev-be200);color:var(--ev-be200)}
+.narration{
+  font-family:var(--mono);font-size:11.5px;color:var(--ink-dim);
+  min-height:1.6em;flex:1 1 240px;
+}
+.narration b{color:var(--ev-be200);font-weight:500}
+
+/* ---------- the loop ---------- */
+.loop{
+  display:grid;
+  grid-template-columns:1fr 1fr;
+  column-gap:clamp(20px,5vw,72px);
+  position:relative;
+}
+.rail{display:flex;flex-direction:column;gap:0;min-width:0}
+.rail.rx{flex-direction:column-reverse}
+.rail-head{
+  font-family:var(--mono);font-size:10px;letter-spacing:.2em;
+  text-transform:uppercase;color:var(--ink-faint);
+  padding-bottom:12px;border-bottom:1px solid var(--rule);margin-bottom:14px;
+}
+.rail.rx .rail-head{border-bottom:none;border-top:1px solid var(--rule);padding:12px 0 0;margin:14px 0 0}
+
+.boundary{
+  font-family:var(--mono);font-size:9.5px;letter-spacing:.18em;
+  text-transform:uppercase;color:var(--ink-faint);
+  margin:16px 0 8px;display:flex;align-items:center;gap:8px;
+}
+.boundary::after{content:"";flex:1;height:1px;background:var(--rule)}
+
+.node{
+  position:relative;width:100%;text-align:left;
+  background:var(--panel);border:1px solid var(--rule);
+  border-left:2px solid var(--ev-repr);
+  border-radius:2px;padding:11px 13px;margin-bottom:9px;
+  cursor:pointer;color:var(--ink);
+  font-family:var(--body);
+  transition:border-color .15s,background .15s,transform .15s,opacity .25s;
+}
+.node:hover{background:var(--panel-2);transform:translateX(2px)}
+.node:focus-visible{outline:2px solid var(--ink);outline-offset:2px}
+.node[data-ev="be200"]{border-left-color:var(--ev-be200)}
+.node[data-ev="iface"]{border-left-color:var(--ev-iface)}
+.node[data-ev="repr"] {border-left-color:var(--ev-repr)}
+.node[data-ev="prop"] {border-left-color:var(--ev-prop)}
+.node[aria-current="true"]{background:var(--panel-2);border-color:var(--rule-hot)}
+.node.muted{opacity:.16}
+.node.lit{
+  background:#16233A;border-color:var(--ev-be200);
+  box-shadow:0 0 0 1px var(--ev-be200), 0 0 22px -6px var(--ev-be200);
+}
+.node-name{font-size:13.5px;font-weight:500;letter-spacing:.01em;display:block}
+.node-meta{
+  font-family:var(--mono);font-size:9.5px;letter-spacing:.09em;
+  text-transform:uppercase;color:var(--ink-faint);margin-top:3px;display:block;
+}
+.node-idx{
+  font-family:var(--mono);font-size:9.5px;color:var(--ink-faint);
+  float:right;margin-left:8px;
+}
+
+/* the air gap — the fold of the loop */
+.air{
+  grid-column:1 / -1;margin:6px 0 2px;
+  border:1px dashed var(--rule-hot);border-radius:2px;
+  background:linear-gradient(180deg,transparent,rgba(63,224,200,.05));
+  padding:16px 14px;text-align:center;cursor:pointer;color:var(--ink);
+  font-family:var(--mono);font-size:11px;letter-spacing:.2em;text-transform:uppercase;
+  transition:border-color .15s,background .15s;
+}
+.air:hover{border-color:var(--ev-be200)}
+.air.lit{border-color:var(--ev-be200);border-style:solid;background:rgba(63,224,200,.1)}
+.air small{display:block;font-size:9.5px;letter-spacing:.1em;color:var(--ink-faint);margin-top:5px;text-transform:none}
+
+/* ---------- detail panel ---------- */
+.detail{
+  position:sticky;top:0;height:100vh;overflow-y:auto;
+  background:var(--panel);border-left:1px solid var(--rule);
+  padding:26px 24px 60px;
+}
+.detail-empty{color:var(--ink-faint);font-family:var(--mono);font-size:11.5px;line-height:1.8}
+.badge{
+  display:inline-block;font-family:var(--mono);font-size:9.5px;font-weight:700;
+  letter-spacing:.13em;text-transform:uppercase;
+  padding:4px 9px;border-radius:2px;color:var(--void);
+}
+.badge[data-ev="be200"]{background:var(--ev-be200)}
+.badge[data-ev="iface"]{background:var(--ev-iface)}
+.badge[data-ev="repr"] {background:var(--ev-repr)}
+.badge[data-ev="prop"] {background:var(--ev-prop)}
+.detail h2{
+  font-family:var(--display);font-weight:500;font-size:17px;
+  letter-spacing:.05em;margin:14px 0 4px;line-height:1.35;
+}
+.detail-boundary{
+  font-family:var(--mono);font-size:10px;letter-spacing:.15em;
+  text-transform:uppercase;color:var(--ink-faint);margin-bottom:20px;
+}
+.field{margin-bottom:18px;padding-bottom:18px;border-bottom:1px solid var(--rule)}
+.field:last-of-type{border-bottom:none}
+.field-label{
+  font-family:var(--mono);font-size:9.5px;letter-spacing:.16em;
+  text-transform:uppercase;color:var(--ink-faint);margin-bottom:6px;
+}
+.field p{margin:0 0 8px;font-size:13.5px;line-height:1.62}
+.field p:last-child{margin-bottom:0}
+.field .deeper{color:var(--ink-dim);font-size:12.5px}
+.io{font-family:var(--mono);font-size:12px;color:var(--ev-be200)}
+.reality{
+  background:rgba(224,85,155,.07);border-left:2px solid var(--ev-prop);
+  padding:11px 13px;font-size:12.5px;color:var(--ink-dim);
+}
+.navlinks{display:flex;gap:8px;margin-top:6px}
+.navlinks .btn{flex:1;text-align:center;padding:8px 6px;font-size:10px}
+
+/* ---------- footer ---------- */
+.footer{
+  border-top:1px solid var(--rule);padding:22px 28px 40px;
+  font-family:var(--mono);font-size:10.5px;color:var(--ink-faint);
+  line-height:1.9;grid-column:1 / -1;
+}
+.footer b{color:var(--ink-dim);font-weight:500}
+
+@media (max-width:1080px){
+  .stage{grid-template-columns:1fr}
+  .detail{position:static;height:auto;border-left:none;border-top:1px solid var(--rule)}
+}
+@media (max-width:620px){
+  .loop{grid-template-columns:1fr}
+  .rail.rx{flex-direction:column}
+  .masthead{padding:18px}
+  .map-wrap{padding:18px 18px 40px}
+}
+@media (prefers-reduced-motion:reduce){
+  *{transition:none!important;animation:none!important}
+}
+</style>
+</head>
+<body>
+
+<header class="masthead">
+  <div>
+    <h1 class="title">Wi-Fi 7 NIC Explorer</h1>
+    <p class="subtitle">
+      A packet's round trip through a desktop PCIe adapter and an M.2 2230 Key-E module.
+      Intel BE200 is the physical reference; the internal architecture is
+      <b>vendor-neutral by construction</b>. Every block declares how well it is attested.
+    </p>
+  </div>
+  <div class="evidence-bar">
+    <div class="evidence-label">Evidence filter</div>
+    <div class="chips" id="chips">
+      <button class="chip" data-ev="be200" data-on="true">Public · BE200</button>
+      <button class="chip" data-ev="iface" data-on="true">Public · Interface</button>
+      <button class="chip" data-ev="repr"  data-on="true">Representative</button>
+      <button class="chip" data-ev="prop"  data-on="true">Proprietary</button>
+      <button class="chip-strip" id="stripBtn">Show only what is public</button>
+    </div>
+  </div>
+</header>
+
+<div class="stage">
+  <main class="map-wrap">
+    <div class="transport">
+      <button class="btn primary" id="playTx">▶ Ping transmit</button>
+      <button class="btn" id="playRx">▶ Ping receive</button>
+      <button class="btn" id="playLoop">▶ Full round trip</button>
+      <button class="btn" id="stopBtn">■ Stop</button>
+      <div class="narration" id="narration">Select any block to inspect it, or run the packet animation.</div>
+    </div>
+    <div class="loop" id="loop">
+      <div class="rail tx" id="railTx"><div class="rail-head">Transmit — host to air</div></div>
+      <div class="rail rx" id="railRx"><div class="rail-head">Receive — air to host</div></div>
+    </div>
+  </main>
+
+  <aside class="detail" id="detail">
+    <div class="detail-empty">
+      No block selected.<br><br>
+      Click any stage in the loop to open its record: what enters, what happens,
+      what leaves, why it exists, how well it is attested, and what has been
+      simplified or is simply unknown.<br><br>
+      Use ← → to step through the flow.
+    </div>
+  </aside>
+
+  <footer class="footer">
+    <b>Evidence legend.</b>
+    Public · BE200 — explicitly documented in Intel product information, regulatory filings, or public device identification.
+    Public · Interface — defined by published standards or visible host interfaces, not evidence of Intel's internal implementation.
+    Representative — a credible teaching circuit or functional decomposition, not a disclosure.
+    Proprietary — implementation detail that must not be presented as known BE200 architecture.<br>
+    <b>Sources.</b> Intel BE200 product specifications · Intel BE200 product brief · FCC filing index PD9BE200NG · Linux Wireless iwlwifi documentation · Linux iwlwifi PCIe device source (public BE200 PCI ID 0x272B).<br>
+    <b>Standing limitation.</b> Product literature describes capabilities and external interfaces, not a complete internal block diagram. Open-source host drivers reveal host-facing software and transport structure; device firmware and silicon implementation remain proprietary.
+  </footer>
+</div>
+
+<script>
+const EV = {
+  be200:{label:"Public · BE200"},
+  iface:{label:"Public · Interface"},
+  repr: {label:"Representative"},
+  prop: {label:"Proprietary"}
+};
+
+const BLOCKS = [
+/* ---------------- TRANSMIT ---------------- */
+{id:"app",rail:"tx",boundary:"Boundary 1 — before the NIC",ev:"iface",
+ name:"Application",meta:"Ping · HTTPS",
+ enters:"A user intention — send an echo request, or fetch a page.",
+ happens:"The program asks the operating system to send some bytes to an address.",
+ deeper:"The Ping flow requests an ICMP Echo message. The HTTPS flow hands application data to TLS first, so the payload is already ciphertext before any network layer sees it.",
+ leaves:"A buffer of bytes plus a destination, handed to the socket layer.",
+ why:"Without an application asking for something, nothing on the radio has a reason to exist.",
+ reality:"The exact system-call sequence varies by operating system. This models the concept, not a universal call path."},
+
+{id:"sock",rail:"tx",boundary:null,ev:"iface",
+ name:"Sockets and OS networking",meta:"Route selection",
+ enters:"Bytes and a destination address.",
+ happens:"The OS decides which network interface should carry this traffic.",
+ deeper:"The routing table is consulted, a source address is chosen, and the socket is bound to an egress interface. On a machine with both Ethernet and Wi-Fi, this is the step that decides the packet becomes radio at all.",
+ leaves:"Bytes committed to a specific interface.",
+ why:"A host usually has several ways out. Something has to choose.",
+ reality:"Queueing disciplines, namespaces, and policy routing are collapsed into one block."},
+
+{id:"tcpip",rail:"tx",boundary:null,ev:"iface",
+ name:"TCP/IP or ICMP processing",meta:"Headers and state",
+ enters:"Payload bytes.",
+ happens:"Network and transport headers are prepended, producing a routable packet.",
+ deeper:"ICMP Echo carries an identifier and sequence number and no transport port. TCP maintains connection state, sequence numbers, and a congestion window, and segments the stream to fit the path MTU.",
+ leaves:"An IP packet with complete addressing.",
+ why:"Addressing and reliability are host responsibilities. The radio does not do them.",
+ reality:"Checksum offload can move some of this work into hardware. Which parts, and where, varies by device and driver."},
+
+{id:"drv",rail:"tx",boundary:null,ev:"be200",
+ name:"Wi-Fi driver and OS wireless stack",meta:"iwlwifi family",
+ enters:"An IP packet destined for the wireless interface.",
+ happens:"The driver prepares the packet for a specific piece of Wi-Fi hardware.",
+ deeper:"On Linux, BE200 is served by the iwlwifi driver family, which loads separate device firmware and attaches over the PCIe transport. The driver mediates between the generic wireless stack and this device's command interface.",
+ leaves:"A packet placed in a transmit buffer the device can reach.",
+ why:"Generic networking code cannot know one vendor's command format. The driver is that translation.",
+ reality:"Driver support is public. The command protocol it speaks to the device is not."},
+
+{id:"dma",rail:"tx",boundary:null,ev:"repr",
+ name:"Host memory descriptors and DMA",meta:"Representative rings",
+ enters:"A packet in host RAM.",
+ happens:"The host writes a small record saying where the packet is, then rings a doorbell.",
+ deeper:"A descriptor ring is the conventional structure: fixed-size records in a circular buffer, each pointing at a packet buffer, with producer and consumer indices tracked by host and device respectively. The device then reads the packet directly from host memory without CPU involvement.",
+ leaves:"A descriptor the device can fetch, and a buffer it can pull from.",
+ why:"Copying every packet through the CPU would waste the bandwidth this link exists to provide.",
+ reality:"Representative — not a BE200 disclosure. The actual descriptor format, ring count, and interrupt architecture are proprietary."},
+
+{id:"pcie",rail:"tx",boundary:"Boundary 2 — public module interfaces",ev:"iface",
+ name:"PCIe link on the desktop adapter",meta:"Serial lanes · TLPs",
+ enters:"Memory read requests from the device, and doorbell writes from the host.",
+ happens:"Data crosses the board as high-speed serial traffic rather than parallel wires.",
+ deeper:"PCIe carries transaction-layer packets over differential pairs with embedded clocking. The desktop adapter is largely an interconnect and power platform here — it does not process Wi-Fi packets, it carries them.",
+ leaves:"Packet bytes moving toward the module.",
+ why:"The module lives on a card, not on the CPU die. Something has to bridge that distance at speed.",
+ reality:"Lane count, link speed, and negotiated width depend on the adapter and slot, not on the module alone."},
+
+{id:"m2",rail:"tx",boundary:null,ev:"be200",
+ name:"M.2 Key-E connector boundary",meta:"22 × 30 × 2.4 mm",
+ enters:"PCIe signalling, 3.3 V power, and control lines.",
+ happens:"The physical edge where the host platform ends and the module begins.",
+ deeper:"BE200 is offered in M.2 2230 and M.2 1216 form factors; the teaching reference is the 22 mm × 30 mm × 2.4 mm 2230 module. The M.2 version exposes both PCIe and USB host interfaces. In this model PCIe carries Wi-Fi traffic and USB is shown as the Bluetooth-side path.",
+ leaves:"Everything the module needs: data, power, clock, reset, wake.",
+ why:"This is the only boundary in the whole model that you can physically touch and unscrew.",
+ reality:"Pin-level assignments should come from an M.2 Key-E specification. Reserved and vendor-specific pins must not be inferred. The exact internal PCIe/USB partition remains proprietary."},
+
+{id:"devif",rail:"tx",boundary:null,ev:"be200",
+ name:"Host-interface and firmware boundary",meta:"Public edge · opaque interior",
+ enters:"Commands and packet data from the driver.",
+ happens:"The device's own firmware takes ownership of the packet.",
+ deeper:"Public evidence establishes four things: iwlwifi host-driver support, a PCIe transport, separately loaded device firmware, and interaction with the Linux wireless stack. That is a boundary, not an architecture.",
+ leaves:"A transmit request inside the device.",
+ why:"Radio timing is far too tight for a general-purpose OS to service directly. The device runs its own real-time software.",
+ reality:"Everything past this line — processor cores, memories, schedulers, the host/firmware offload split, accelerator blocks — is proprietary. The blocks that follow are standards-derived teaching abstractions."},
+
+{id:"mac",rail:"tx",boundary:"Boundary 3 — digital Wi-Fi processing",ev:"repr",
+ name:"802.11 MAC processing",meta:"Framing · access · scheduling",
+ enters:"A network-layer payload and a transmit request.",
+ happens:"The packet becomes an 802.11 frame and waits for a turn to speak.",
+ deeper:"Payloads are wrapped in 802.11 data units with addressing and sequence control, aggregated into larger bursts to amortise overhead, and scheduled against a shared medium — the radio must confirm no one else is transmitting, then contend for access. Block acknowledgments cover whole aggregates, and retry handling feeds the rate-control loop.",
+ leaves:"A scheduled, addressed, aggregated frame ready for encryption.",
+ why:"Radio is a shared medium with no wire to arbitrate it. Everything here exists because neighbours transmit too.",
+ reality:"Representative. The real division between hardware acceleration and firmware, and the ordering of these functions inside BE200, is proprietary."},
+
+{id:"sec",rail:"tx",boundary:null,ev:"repr",
+ name:"Link security and integrity",meta:"Per-hop protection",
+ enters:"An 802.11 frame in the clear.",
+ happens:"The frame is encrypted and stamped so tampering can be detected.",
+ deeper:"Link-layer encryption protects this radio hop only. A packet number provides replay protection, and an integrity check lets the receiver reject modified frames. This is a different layer from TLS: TLS protects application content end to end across the whole internet, while Wi-Fi security protects one wireless link between you and the access point.",
+ leaves:"A protected frame.",
+ why:"Anyone within radio range receives your signal. Encryption is what makes that acceptable.",
+ reality:"No specific cipher-engine topology, key-memory design, or placement inside BE200 is claimed."},
+
+{id:"phy",rail:"tx",boundary:null,ev:"repr",
+ name:"Baseband PHY — transmit",meta:"Coding · OFDM · IFFT",
+ enters:"A protected frame as bits.",
+ happens:"Bits become a waveform described as numbers.",
+ deeper:"The transmit sequence: scramble and encode the bits; interleave and map coded bits to constellation points — Wi-Fi 7 reaches 4096-QAM, packing 12 bits per symbol; allocate symbols across OFDM subcarriers and spatial streams; add pilots and preamble training fields; perform the inverse FFT to produce time-domain samples; apply a cyclic prefix and calibration or predistortion corrections.",
+ leaves:"A stream of digital I/Q samples.",
+ why:"Radio channels distort signals badly. Coding and OFDM are what make dense modulation survive that.",
+ reality:"IEEE 802.11-class concepts. Not a disclosed BE200 pipeline — no claim about LDPC, FFT, MIMO detector, or beamforming microarchitecture."},
+
+{id:"dac",rail:"tx",boundary:"Boundary 4 — mixed-signal and RF",ev:"repr",
+ name:"Digital-to-analog transmit path",meta:"Interpolate · DAC · filter",
+ enters:"Digital I/Q samples.",
+ happens:"Numbers become a real, continuous voltage.",
+ deeper:"Samples are interpolated to a higher rate to push image products away from the wanted signal, converted by a DAC, then reconstruction-filtered to remove the remaining sampling artefacts. This is the exact point where the packet stops being data and starts being physics.",
+ leaves:"An analog baseband waveform.",
+ why:"Antennas radiate voltages, not integers.",
+ reality:"Representative circuit. Converter count, resolution, sample rate, and topology inside BE200 are not public."},
+
+{id:"rfup",rail:"tx",boundary:null,ev:"repr",
+ name:"RF upconversion and filtering",meta:"Mixer · LO · synthesis",
+ enters:"Analog baseband I/Q.",
+ happens:"The signal is lifted from near zero up to the transmit channel.",
+ deeper:"An I/Q modulator multiplies baseband against a local oscillator to place the signal at 2.4, 5, or 6 GHz. The oscillator comes from a synthesiser locked to a reference. Oscillator quality matters directly: phase noise appears at the receiver as constellation rotation and degraded error-vector magnitude, and 4096-QAM has very little margin for it.",
+ leaves:"A modulated RF signal at channel frequency.",
+ why:"Baseband will not propagate. The carrier is what makes it a radio wave.",
+ reality:"Representative. Synthesiser count, reference frequency, loop bandwidth, and conversion architecture are proprietary."},
+
+{id:"pa",rail:"tx",boundary:null,ev:"repr",
+ name:"Power amplifier and RF switch",meta:"Gain · band select · match",
+ enters:"A low-power RF signal.",
+ happens:"The signal is amplified to legal transmit power and routed to an antenna.",
+ deeper:"Variable-gain driver stages feed a power amplifier, then band-select filtering, switch or diplexer routing, and impedance matching to the antenna port. The amplifier is the largest current draw in the module and the reason the power tree must survive sharp transmit-burst transients.",
+ leaves:"Transmit-power RF at the antenna port.",
+ why:"Milliwatts do not reach across a house. Amplification is the whole point of the analog chain.",
+ reality:"Representative. Amplifier count, topology, filter arrangement, and calibration loops are not public. Function must not be assigned to shielded parts from FCC photographs alone."},
+
+{id:"ant",rail:"tx",boundary:null,ev:"be200",
+ name:"Two antenna ports",meta:"2 × 2 · tri-band",
+ enters:"Amplified RF on two chains.",
+ happens:"Electrical current becomes a radiated electromagnetic field.",
+ deeper:"BE200 is publicly described as 2×2 across 2.4, 5, and 6 GHz, supporting up to 320 MHz channels and 4096-QAM for a stated maximum PHY rate of 5.8 Gbit/s. Two spatially separated antennas let two independent data streams share the same channel — the receiver separates them because they arrive through measurably different paths.",
+ leaves:"A radio wave.",
+ why:"Spatial separation is free bandwidth. It is the cheapest capacity in the standard.",
+ reality:"2×2 and the band list are public capability claims. Antenna element design, placement, and matching on any given adapter are not part of the module."},
+
+/* ---------------- RECEIVE ---------------- */
+{id:"antrx",rail:"rx",boundary:"Boundary 4 — mixed-signal and RF",ev:"be200",
+ name:"Two antenna ports",meta:"Receive · 2 × 2",
+ enters:"A radio wave, arriving by several paths at once.",
+ happens:"The field induces a very small current in each antenna.",
+ deeper:"The received signal is a superposition of the direct path and every reflection off walls, floors, and furniture. Two antennas see measurably different combinations, which is exactly what makes separating two spatial streams possible.",
+ leaves:"Microvolt-scale RF on two chains.",
+ why:"Multipath is usually described as a problem. For MIMO it is the resource.",
+ reality:"Same public 2×2 basis as the transmit side. Nothing about internal receive routing is claimed."},
+
+{id:"lna",rail:"rx",boundary:null,ev:"repr",
+ name:"RF switch, filter, and LNA",meta:"Noise figure first",
+ enters:"A weak RF signal buried in noise and adjacent-channel energy.",
+ happens:"The signal is filtered and amplified as quietly as possible.",
+ deeper:"Band-select filtering rejects out-of-band energy before a low-noise amplifier raises the signal. This block matters disproportionately: noise added by the first amplifier is amplified by everything downstream, so its noise figure sets the floor for the entire receiver. Nothing later can recover what is lost here.",
+ leaves:"An amplified RF signal.",
+ why:"The received signal can be a billion times weaker than what was transmitted. It must be lifted before anything else touches it.",
+ reality:"Representative. Amplifier count, filter topology, and switch arrangement are not public."},
+
+{id:"rfdn",rail:"rx",boundary:null,ev:"repr",
+ name:"Downconversion",meta:"Mixer · LO · AGC",
+ enters:"Amplified RF at channel frequency.",
+ happens:"The signal is brought back down to baseband.",
+ deeper:"A mixer driven by the local oscillator translates the channel to near zero frequency, followed by baseband filtering and automatic gain control to fit the signal into the converter's input range. Gain control must react fast — a packet can arrive from a near neighbour or a distant one with no warning.",
+ leaves:"Analog baseband I/Q at a usable amplitude.",
+ why:"Digitising directly at 6 GHz would be far more expensive in power than translating first.",
+ reality:"Representative. Conversion architecture and gain-control loops inside BE200 are proprietary."},
+
+{id:"adc",rail:"rx",boundary:null,ev:"repr",
+ name:"Analog-to-digital receive path",meta:"Sample · quantise",
+ enters:"Analog baseband I/Q.",
+ happens:"The waveform becomes numbers again.",
+ deeper:"The ADC samples and quantises both I and Q. Resolution matters more here than intuition suggests: 4096-QAM requires distinguishing 4096 constellation points, so quantisation noise and converter linearity translate directly into whether the densest modulation is usable at all.",
+ leaves:"Digital I/Q samples.",
+ why:"Everything downstream is arithmetic, and arithmetic needs numbers.",
+ reality:"Representative. Converter count, resolution, and sample rate are not public."},
+
+{id:"phyr",rail:"rx",boundary:"Boundary 3 — digital Wi-Fi processing",ev:"repr",
+ name:"Baseband PHY — receive",meta:"Sync · estimate · decode",
+ enters:"Digital samples that may or may not contain a packet.",
+ happens:"The receiver finds the packet, works out what the channel did to it, and undoes that.",
+ deeper:"This is not the transmit path run backwards. First detect that a packet exists at all and synchronise timing and frequency. Then estimate the channel from known training fields — measuring how the room distorted a signal whose original shape is known. Transform to the frequency domain, equalise and separate the spatial streams using that estimate, demap constellation points to soft bits, deinterleave, and run error-correction decoding.",
+ leaves:"Recovered bits, with a validity indication.",
+ why:"The transmitter knows what it sent. The receiver has to deduce it. That asymmetry is why this is the hardest block in the model.",
+ reality:"Standards-class concepts only. No claim about detector, decoder, or equaliser microarchitecture."},
+
+{id:"macr",rail:"rx",boundary:null,ev:"repr",
+ name:"802.11 receive MAC",meta:"Filter · decrypt · reorder",
+ enters:"Decoded 802.11 frames.",
+ happens:"Frames addressed to this device are checked, decrypted, and put back in order.",
+ deeper:"Address filtering discards frames meant for other stations. Integrity is verified and the frame decrypted; replay protection rejects anything reused. Aggregates are split back into individual packets, and out-of-order arrivals — the normal result of retries — are reordered before delivery. A block acknowledgment goes back to the transmitter.",
+ leaves:"Ordered, verified network-layer payloads.",
+ why:"Retries and aggregation mean packets genuinely arrive out of order. Something must hide that from TCP.",
+ reality:"Representative. The hardware/firmware split for filtering, decryption, and reordering is proprietary."},
+
+{id:"devifr",rail:"rx",boundary:"Boundary 2 — public module interfaces",ev:"be200",
+ name:"Firmware and host-interface boundary",meta:"Opaque interior · public edge",
+ enters:"Validated payloads inside the device.",
+ happens:"Firmware hands the packet back to the host side of the boundary.",
+ deeper:"The same public boundary as the transmit path, crossed the other way: device firmware, PCIe transport, iwlwifi driver, Linux wireless stack.",
+ leaves:"A receive completion the host can act on.",
+ why:"The device cannot deliver into an application. Only the host knows what an application is.",
+ reality:"Everything on the device side of this line remains proprietary."},
+
+{id:"pcier",rail:"rx",boundary:null,ev:"repr",
+ name:"PCIe DMA into host memory",meta:"Representative rings",
+ enters:"Packet data in device buffers.",
+ happens:"The device writes the packet into host RAM and raises an interrupt.",
+ deeper:"Receive descriptors were posted in advance by the driver, pointing at empty buffers. The device fills one, updates the descriptor, and signals completion. Interrupt moderation batches these signals so a busy link does not drown the CPU in interrupts.",
+ leaves:"A packet in host memory and a completion signal.",
+ why:"At multi-gigabit rates, per-packet CPU interrupts would cost more than the packets are worth.",
+ reality:"Representative. Actual ring formats and interrupt architecture are proprietary."},
+
+{id:"osrx",rail:"rx",boundary:"Boundary 1 — after the NIC",ev:"iface",
+ name:"Driver and OS receive stack",meta:"Reassemble · verify",
+ enters:"Raw packets in host memory.",
+ happens:"The OS reassembles the stream and routes it to the right socket.",
+ deeper:"The driver passes packets up; IP verifies addressing; TCP reassembles segments into an ordered byte stream and acknowledges them, or ICMP matches an Echo Reply to its outstanding request. For HTTPS, TLS then authenticates and decrypts the records — the second and outermost of the two independent protection layers this packet passed through.",
+ leaves:"Ordered application data at the correct socket.",
+ why:"Packets arrive as fragments of a conversation. Reassembling them is the host's job.",
+ reality:"Offload features can move checksum and segmentation work into hardware, varying by device."},
+
+{id:"apprx",rail:"rx",boundary:null,ev:"iface",
+ name:"Application",meta:"Reply · response",
+ enters:"Ordered bytes.",
+ happens:"The program receives its answer.",
+ deeper:"Ping matches the Echo Reply to its request by identifier and sequence number and prints a round-trip time — a number that includes every block in this loop, twice, plus the access point and everything beyond it.",
+ leaves:"A result to the user.",
+ why:"This is the only step the person actually sees.",
+ reality:"The measured round-trip time attributes nothing to individual blocks. It is a single aggregate number."}
+];
+
+const AIR = {
+ id:"air",ev:"iface",boundary:"The channel",
+ name:"2.4 / 5 / 6 GHz radio channel",meta:"Shared medium",
+ enters:"A radiated electromagnetic field.",
+ happens:"The signal crosses open space, and is changed by everything it touches.",
+ deeper:"The wave reflects, diffracts, and attenuates. It arrives by multiple paths at slightly different times, which causes some frequencies to reinforce and others to cancel. Higher bands carry more bandwidth but pass through walls less well, which is why 6 GHz is fast and short-ranged. Every other device in range shares this same medium.",
+ leaves:"A much weaker, distorted version of what was sent.",
+ why:"This is the only part of the system no one designed and no one controls.",
+ reality:"Propagation is standards- and physics-derived. Nothing here is a claim about BE200."};
+
+/* ---------- render ---------- */
+const railTx = document.getElementById("railTx");
+const railRx = document.getElementById("railRx");
+const loopEl = document.getElementById("loop");
+const detail = document.getElementById("detail");
+const narration = document.getElementById("narration");
+const nodeEls = {};
+
+function makeNode(b,index){
+  const btn=document.createElement("button");
+  btn.className="node";
+  btn.dataset.ev=b.ev; btn.dataset.id=b.id;
+  btn.setAttribute("aria-current","false");
+  btn.innerHTML=`<span class="node-idx">${String(index).padStart(2,"0")}</span>
+    <span class="node-name">${b.name}</span>
+    <span class="node-meta">${b.meta} · ${EV[b.ev].label}</span>`;
+  btn.addEventListener("click",()=>select(b.id));
+  nodeEls[b.id]=btn;
+  return btn;
+}
+
+let n=0;
+BLOCKS.filter(b=>b.rail==="tx").forEach(b=>{
+  if(b.boundary){const h=document.createElement("div");h.className="boundary";h.textContent=b.boundary;railTx.appendChild(h);}
+  railTx.appendChild(makeNode(b,++n));
+});
+
+const airEl=document.createElement("button");
+airEl.className="air"; airEl.dataset.id="air";
+airEl.innerHTML=`↓ 2.4 / 5 / 6 GHz radio channel ↓<small>the only block nobody designed</small>`;
+airEl.addEventListener("click",()=>select("air"));
+nodeEls["air"]=airEl;
+loopEl.appendChild(airEl);
+
+BLOCKS.filter(b=>b.rail==="rx").forEach(b=>{
+  if(b.boundary){const h=document.createElement("div");h.className="boundary";h.textContent=b.boundary;railRx.appendChild(h);}
+  railRx.appendChild(makeNode(b,++n));
+});
+
+/* ---------- detail panel ---------- */
+const ALL = [...BLOCKS.filter(b=>b.rail==="tx"), AIR, ...BLOCKS.filter(b=>b.rail==="rx")];
+const order = ALL.map(b=>b.id);
+let current=null;
+
+function findBlock(id){ return ALL.find(b=>b.id===id); }
+
+function select(id){
+  const b=findBlock(id); if(!b) return;
+  current=id;
+  Object.values(nodeEls).forEach(el=>el.setAttribute("aria-current","false"));
+  if(nodeEls[id]) nodeEls[id].setAttribute("aria-current","true");
+  const i=order.indexOf(id);
+  const prev=i>0?findBlock(order[i-1]):null;
+  const next=i<order.length-1?findBlock(order[i+1]):null;
+
+  detail.innerHTML=`
+    <span class="badge" data-ev="${b.ev}">${EV[b.ev].label}</span>
+    <h2>${b.name}</h2>
+    <div class="detail-boundary">${b.boundary||""}</div>
+
+    <div class="field"><div class="field-label">What enters</div>
+      <p class="io">${b.enters}</p></div>
+
+    <div class="field"><div class="field-label">What happens</div>
+      <p>${b.happens}</p><p class="deeper">${b.deeper}</p></div>
+
+    <div class="field"><div class="field-label">What leaves</div>
+      <p class="io">${b.leaves}</p></div>
+
+    <div class="field"><div class="field-label">Why it is needed</div>
+      <p>${b.why}</p></div>
+
+    <div class="field"><div class="field-label">Reality check</div>
+      <p class="reality">${b.reality}</p></div>
+
+    <div class="field"><div class="field-label">Flow</div>
+      <div class="navlinks">
+        <button class="btn" ${prev?`onclick="select('${prev.id}')"`:"disabled"}>← ${prev?prev.name.slice(0,18):"start"}</button>
+        <button class="btn" ${next?`onclick="select('${next.id}')"`:"disabled"}>${next?next.name.slice(0,18):"end"} →</button>
+      </div></div>`;
+  detail.scrollTop=0;
+}
+window.select=select;
+
+/* ---------- evidence filter ---------- */
+const state={be200:true,iface:true,repr:true,prop:true};
+function applyFilter(){
+  ALL.forEach(b=>{
+    const el=nodeEls[b.id]; if(!el) return;
+    el.classList.toggle("muted",!state[b.ev]);
+  });
+}
+document.querySelectorAll(".chip").forEach(chip=>{
+  chip.addEventListener("click",()=>{
+    const ev=chip.dataset.ev;
+    state[ev]=!state[ev];
+    chip.dataset.on=String(state[ev]);
+    applyFilter();
+  });
+});
+document.getElementById("stripBtn").addEventListener("click",()=>{
+  const stripped = state.repr===false && state.prop===false;
+  state.repr=stripped; state.prop=stripped;
+  state.be200=true; state.iface=true;
+  document.querySelectorAll(".chip").forEach(c=>c.dataset.on=String(state[c.dataset.ev]));
+  applyFilter();
+  narration.innerHTML = stripped
+    ? "Filter cleared. All blocks shown."
+    : "Everything still visible is <b>publicly established</b>. Everything dimmed is a teaching abstraction — that is most of the radio.";
+});
+
+/* ---------- animation ---------- */
+let timer=null;
+function stop(){
+  clearTimeout(timer); timer=null;
+  Object.values(nodeEls).forEach(el=>el.classList.remove("lit"));
+}
+function run(ids,i=0){
+  if(i>=ids.length){ narration.innerHTML="Round trip complete."; timer=null; return; }
+  Object.values(nodeEls).forEach(el=>el.classList.remove("lit"));
+  const b=findBlock(ids[i]);
+  const el=nodeEls[ids[i]];
+  if(el){ el.classList.add("lit"); el.scrollIntoView({block:"center",behavior:"smooth"}); }
+  narration.innerHTML=`<b>${String(i+1).padStart(2,"0")}</b> ${b.name} — ${b.happens}`;
+  select(ids[i]);
+  timer=setTimeout(()=>run(ids,i+1),1500);
+}
+const txIds=[...BLOCKS.filter(b=>b.rail==="tx").map(b=>b.id),"air"];
+const rxIds=["air",...BLOCKS.filter(b=>b.rail==="rx").map(b=>b.id)];
+document.getElementById("playTx").addEventListener("click",()=>{stop();run(txIds);});
+document.getElementById("playRx").addEventListener("click",()=>{stop();run(rxIds);});
+document.getElementById("playLoop").addEventListener("click",()=>{stop();run(order);});
+document.getElementById("stopBtn").addEventListener("click",()=>{stop();narration.textContent="Stopped.";});
+
+/* ---------- keyboard ---------- */
+document.addEventListener("keydown",e=>{
+  if(e.key!=="ArrowLeft"&&e.key!=="ArrowRight") return;
+  if(document.activeElement&&document.activeElement.tagName==="INPUT") return;
+  const i=current?order.indexOf(current):-1;
+  const ni=e.key==="ArrowRight"?Math.min(i+1,order.length-1):Math.max(i-1,0);
+  select(order[ni<0?0:ni]);
+});
+
+applyFilter();
+</script>
+</body>
+</html>
