@@ -27,4 +27,8 @@ Tab 3 - Scale Ladder, high level over view from what happens at a room level, an
 - I'd prefer the styling in a separate file.
 - Look for and simplify redundant code.
 - Some of the graphics are slightly out of place, minor, but noticable.
+- Open to ideas!
+
+### Contributing
+- Fork and make a pull request
 
